@@ -459,7 +459,9 @@ fn put_samples(c: &SmCurve, out: &mut Vec<f64>) -> Result<(), SolidError> {
     for k in 0..=2u8 {
         match c.evaluate_point(&Kernel::default(), ivl.evaluate(f64::from(k) / 2.0)) {
             Ok(p) => out.extend([0.0, p.x, p.y, p.z]),
-            Err(SolidError::Upstream { code, .. }) => out.extend([f64::from(code), 0.0, 0.0, 0.0]),
+            Err(e) if solidcore::error::upstream_status(&e).is_some() => {
+                out.extend([f64::from(solidcore::error::upstream_status(&e).unwrap_or(-1)), 0.0, 0.0, 0.0]);
+            }
             Err(e) => return Err(e),
         }
     }
@@ -525,7 +527,7 @@ fn status_of(e: SolidError) -> Result<Result<i32, Output>, HarnessError> {
         return Ok(Err(o));
     }
     match e {
-        SolidError::Upstream { code, .. } => Ok(Ok(code)),
+        e if solidcore::error::upstream_status(&e).is_some() => Ok(Ok(solidcore::error::upstream_status(&e).unwrap_or(-1))),
         e => Err(harness(format!("rust: {e}"))),
     }
 }
@@ -921,6 +923,24 @@ fn analytic_face(
     ];
     let d1 = [lo.x + to[0] * (hi.x - lo.x), lo.y + to[1] * (hi.y - lo.y)];
     Ok((s, [d0[0], d0[1], d1[0], d1[1]]))
+}
+
+/// The case's B-rep as [`run_rust_case`] builds it before the operation, and the face the
+/// operation is on (`None`: the build or the face selection fails). For tests that check
+/// a premise on the model a golden row was computed from (#18325).
+///
+/// # Errors
+///
+/// A case that does not parse, or the build's harness error.
+pub fn scene(case: &Case) -> Result<Option<(Brep, FaceId)>, HarnessError> {
+    let i = case.parse::<Inputs>()?;
+    let Ok((b, counts)) = own_brep(&i)? else {
+        return Ok(None);
+    };
+    let Some(a) = args(&i.op, counts, |f| first_loop(&b, f)) else {
+        return Ok(None);
+    };
+    Ok(Some((b, FaceId::from_index(a[0] as u32))))
 }
 
 #[allow(clippy::too_many_lines)] // one arm per op

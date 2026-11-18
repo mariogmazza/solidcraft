@@ -9,7 +9,7 @@ use crate::schema::{ParamCheck, input_schema_for, output_schema_for};
 
 #[test]
 fn schemas_and_the_key_check_agree() {
-    let keys = ["cache", "compression", "format", "overwrite", "path", "preview"];
+    let keys = ["cache", "compression", "format", "overwrite", "path", "preview", "sign", "signing_key"];
     assert_keys(input_schema_for::<SaveParams>(), &keys);
     assert_keys(input_schema_for::<SaveAsParams>(), &keys);
 }
@@ -205,9 +205,11 @@ fn a_newer_files_reply_matches_the_output_schema() {
         bytes: 3,
         name: "a".into(),
         kept_format: Some("solidcraft/99".into()),
+        cache_not_saved: None,
         warnings: Some(vec!["Not kept: x. The previous file is `a.sc.bak`.".into()]),
         not_kept: Some(vec!["x".into()]),
         param_warnings: Vec::new(),
+        signature: None,
     })
     .unwrap_or_default();
     assert_eq!(
@@ -216,4 +218,12 @@ fn a_newer_files_reply_matches_the_output_schema() {
     );
     matches("file.save", &lost);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_script_or_agent_cannot_sign_a_save() {
+    let mut s = Session::default();
+    let path = std::env::temp_dir().join(format!("solidcraft-script-sign-{}.sc", std::process::id()));
+    let error = s.execute("file.save", &json!({"path": path, "sign": true})).expect_err("signing needs the app's Save");
+    assert!(error.to_string().contains("only available from the app's Save"), "{error}");
 }
